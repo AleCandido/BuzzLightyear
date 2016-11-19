@@ -38,7 +38,12 @@ __all__ = [ # things imported when you do "from lab import *"
 	'unicode_pm',
 	'xe',
 	'xep',
-	'util_format'
+	'util_format',
+	'chi2_calc',
+	'pretty_print_chi2',
+	'latex_table',
+	'fit',
+	'fast_plot'
 ]
 
 __version__ = '2.0'
@@ -220,8 +225,8 @@ def fit_generic_xyerr2(f, x, y, sigmax, sigmay, p0=None, print_info=False, absol
 	f_wrap = lambda params, x: f(x, *params)
 	model = odr.Model(f_wrap)
 	data = odr.RealData(x, y, sx=sigmax, sy=sigmay)
-	odr = odr.ODR(data, model, beta0=p0)
-	output = odr.run()
+	Odr = odr.ODR(data, model, beta0=p0)
+	output = Odr.run()
 	par = output.beta
 	cov = output.cov_beta
 	if print_info:
@@ -470,7 +475,7 @@ def fit_const_yerr(y, sigmay):
 	return a, vara
 
 
-# *********************** MULTIMETERS *************************
+# *********************** MULTIMETERS *****************************
 
 def _find_scale(x, scales):
 	# (!) scales sorted ascending
@@ -633,141 +638,158 @@ _util_mm_esr_data = dict(
 	)
 )
 
-def util_mm_er(x, scale, metertype='digital', unit='volt'):
+def util_mm_list():
+	l = []
+	for meter in _util_mm_esr_data:
+		l += [(meter, _util_mm_esr_data[meter]['type'], _util_mm_esr_data[meter]['desc'])]
+	return l
+
+def util_mm_er(x, scale, metertype='dig', unit='volt', sqerr=False):
 	"""
-		Returns the uncertainty of x and the internal resistance of the multimeter.
-		
-		Parameters
-		----------
-		x : number
-			the value measured, may be negative
-		metertype : string
-			one of 'digital', 'analog'
-			the multimeter used
-		unit : string
-			one of 'volt', 'volt_ac', 'ampere' 'ampere_ac', 'ohm'
-			the unit of measure of x
-		scale : number
-			the fullscale used to measure x
-		
-		Returns
-		-------
-		e : number
-			the uncertainty
-		r : number or None
-			the internal resistance (if applicable)
+	Returns the uncertainty of x and the internal resistance of the multimeter.
+
+	Parameters
+	----------
+	x : number
+		the value measured, may be negative
+	scale : number
+		the fullscale used to measure x
+	metertype : string
+		one of the names returned by lab.util_mm_list()
+		the multimeter used
+	unit : string
+		one of 'volt', 'volt_ac', 'ampere' 'ampere_ac', 'ohm', 'farad'
+		the unit of measure of x
+	sqerr : bool
+		If True, sum errors squaring.
+
+	Returns
+	-------
+	e : number
+		the uncertainty
+	r : number or None
+		the internal resistance (if applicable)
+
+	See also
+	--------
+	util_mm_esr, util_mm_esr2, mme
 	"""
-	
+
 	x = abs(x)
-	
-	info = _util_mm_esr_data[metertype][unit]
-	
+
+	errsum = (lambda x, y: math.sqrt(x**2 + y**2)) if sqerr else (lambda x, y: x + y)
+
+	meter = _util_mm_esr_data[metertype]
+	info = meter[unit]
+	typ = meter['type']
+
 	s = scale
 	idx = _find_scale_idx(s, info['scales'])
 	if idx < 0:
 		raise KeyError(s)
 	r = None
-	
-	if metertype == 'digital':
-		if unit == 'volt' or unit == 'volt_ac' or unit == 'ampere' or unit == 'ampere_ac' or unit == 'ohm':
-			e = x * info['perc'][idx] / 100.0 + info['digit'][idx] * 10**(idx + log10(info['scales'][0] / 2.0) - 3)
-			if unit == 'volt' or unit == 'volt_ac':
-				r = 10e+6
-			elif unit == 'ampere' or unit == 'ampere_ac':
-				r = 0.2 / s
-		elif unit == 'volt_anal' or unit == 'volt_ac_anal' or unit == 'ampere_anal' or unit == 'ampere_ac_anal':
-			e = x * sqrt((0.5 * info['relres'][idx]/x)**2 + (info['valg'][idx] / 100.0 )**2)
-			if unit == 'volt' or unit == 'volt_ac':
-				r = 20000 * s
-			elif unit == 'ampere' or unit == 'ampere_ac':
-				r = info['cdt'][idx] / s
-			
-	# elif metertype == 'analog':
-	# 	e = x * sqrt((0.5 / info['relres'][idx])**2 + (info['valg'][idx] / 100.0 * s)**2)
-	# 	if unit == 'volt' or unit == 'volt_ac':
-	# 		r = 20000 * s
-	# 	elif unit == 'ampere' or unit == 'ampere_ac':
-	# 		r = info['cdt'][idx] / s
-	
+
+	if typ == 'digital':
+		e = errsum(x * info['perc'][idx] / 100.0, info['digit'][idx] * 10**(idx + math.log10(info['scales'][0] / 2.0) - 3))
+		if unit == 'volt' or unit == 'volt_ac':
+			r = 10e+6
+		elif unit == 'ampere' or unit == 'ampere_ac':
+			r = 0.2 / s
+	elif typ == 'analog':
+		e = x * errsum(0.5 / info['relres'][idx], info['valg'][idx] / 100.0 * s)
+		if unit == 'volt' or unit == 'volt_ac':
+			r = 20000 * s
+		elif unit == 'ampere' or unit == 'ampere_ac':
+			r = info['cdt'][idx] / s
+	elif typ == 'osc':
+		e = info['div'][idx] / 25
+		r = 10e6
+	else:
+		raise KeyError(typ)
+
 	return e, r
 
-def util_mm_esr(x, metertype='digital', unit='volt'):
+def util_mm_esr(x, metertype='dig', unit='volt', sqerr=False):
 	"""
-		determines the fullscale used to measure x with a multimeter,
-		supposing the lowest possible fullscale was used, and returns the
-		uncertainty, the fullscale and the internal resistance.
-		
-		Parameters
-		----------
-		x : number
-			the value measured, may be negative
-		metertype : string
-			one of 'digital', 'analog'
-			the multimeter used
-		unit : string
-			one of 'volt', 'volt_ac', 'ampere' 'ampere_ac', 'ohm'
-			the unit of measure of x
-		
-		Returns
-		-------
-		e : number
-			the uncertainty
-		s : number
-			the full-scale
-		r : number or None
-			the internal resistance (if applicable)
+	determines the fullscale used to measure x with a multimeter,
+	supposing the lowest possible fullscale was used, and returns the
+	uncertainty, the fullscale and the internal resistance.
+
+	Parameters
+	----------
+	x : number
+		the value measured, may be negative
+	metertype : string
+		one of the names returned by util_mm_list()
+		the multimeter used
+	unit : string
+		one of 'volt', 'volt_ac', 'ampere' 'ampere_ac', 'ohm', 'farad'
+		the unit of measure of x
+	sqerr : bool
+		If True, sum errors squaring.
+
+	Returns
+	-------
+	e : number
+		the uncertainty
+	s : number
+		the full-scale
+	r : number or None
+		the internal resistance (if applicable)
+
+	See also
+	--------
+	util_mm_er, util_mm_esr2, mme
 	"""
-	
+
 	x = abs(x)
 	info = _util_mm_esr_data[metertype][unit]
 	idx = _find_scale(x, info['scales'])
+	if idx < 0:
+		raise ValueError("value '%.4g %s' too big for all scales" % (x, unit))
 	s = info['scales'][idx]
-	e, r = util_mm_er(x, s, metertype=metertype, unit=unit)
+	e, r = util_mm_er(x, s, metertype=metertype, unit=unit, sqerr=sqerr)
 	return e, s, r
 
-_util_mm_esr_vect_error = vectorize(lambda x, y, z: util_mm_esr(x, metertype=y, unit=z)[0], otypes=[number])
-_util_mm_esr_vect_scale = vectorize(lambda x, y, z: util_mm_esr(x, metertype=y, unit=z)[1], otypes=[number])
-_util_mm_esr_vect_res = vectorize(lambda x, y, z: util_mm_esr(x, metertype=y, unit=z)[2], otypes=[number])
+_util_mm_esr_vect_error = np.vectorize(lambda x, y, z, t: util_mm_esr(x, metertype=y, unit=z, sqerr=t)[0], otypes=[np.number])
+_util_mm_esr_vect_scale = np.vectorize(lambda x, y, z, t: util_mm_esr(x, metertype=y, unit=z, sqerr=t)[1], otypes=[np.number])
+_util_mm_esr_vect_res = np.vectorize(lambda x, y, z, t: util_mm_esr(x, metertype=y, unit=z, sqerr=t)[2], otypes=[np.number])
 _util_mm_esr2_what = dict(
 	error=_util_mm_esr_vect_error,
 	scale=_util_mm_esr_vect_scale,
 	res=_util_mm_esr_vect_res
 )
 
-def util_mm_esr2(x, metertype='digital', unit='volt', what='error'):
+def util_mm_esr2(x, metertype='dig', unit='volt', what='error', sqerr=False):
 	"""
-		determines the fullscale used to measure x with a multimeter,
-		supposing the lowest possible fullscale was used, and returns the
-		uncertainty or the fullscale or the internal resistance.
-		
-		Parameters
-		----------
-		x : (X-shaped array of) number 
-			the value measured, may be negative
-		metertype : (X-shaped array of) string
-			one of 'digital', 'analog'
-			the multimeter used
-		unit : (X-shaped array of) string
-			one of 'volt', 'volt_ac', 'ampere' 'ampere_ac', 'ohm'
-			the unit of measure of x
-		what : (X-shaped array of) string
-			one of 'error', 'scale', 'res'
-			what to return
-		
-		Returns
-		-------
-		z : (X-shaped array of) number
-			either the uncertainty, the fullscale or the internal resistance.
+	Vectorized version of lab.util_mm_esr
+
+	Parameters
+	----------
+	what : string
+		one of 'error', 'scale', 'res'
+		what to return
+
+	Returns
+	-------
+	z : number
+		either the uncertainty, the fullscale or the internal resistance.
+
+	See also
+	--------
+	util_mm_er, util_mm_esr, mme
 	"""
 	if unit == 'ohm' and what == 'res':
 		raise ValueError('asking internal resistance of ohmmeter')
-	return _util_mm_esr2_what[what](x, metertype, unit)
+	return _util_mm_esr2_what[what](x, metertype, unit, sqerr)
 
 # *********************** FORMATTING *************************
 
-def _format_epositive(x, e):
-	d = lambda x, n: int(("%.*e" % (n - 1, abs(x)))[0])
-	ap = lambda x, n: float("%.*e" % (n - 1, x))
+d = lambda x, n: int(("%.*e" % (n - 1, abs(x)))[0])
+ap = lambda x, n: float("%.*e" % (n - 1, x))
+nd = lambda x: math.floor(math.log10(abs(x))) + 1
+def _format_epositive(x, e, errsep=True, minexp=3):
+	# DECIDE NUMBER OF DIGITS
 	if d(e, 2) < 3:
 		n = 2
 		e = ap(e, 2)
@@ -776,79 +798,92 @@ def _format_epositive(x, e):
 		e = ap(e, 1)
 	else:
 		n = 1
-	se = "%#.*g" % (n, e)
-	dn = int(floor(log10(abs(x))) - floor(log10(e))) if x != 0 else -n
-	if n + dn > 0:
-		sx = "%#.*g" % (n + dn, x)
+	# FORMAT MANTISSAS
+	dn = int(nd(x) - nd(e)) if x != 0 else -n
+	nx = n + dn
+	if nx > 0:
+		ex = nd(x) - 1
+		if nx > ex and abs(ex) <= minexp:
+			xd = nx - ex - 1
+			ex = 0
+		else:
+			xd = nx - 1
+		sx = "%.*f" % (xd, x / 10**ex)
+		se = "%.*f" % (xd, e / 10**ex)
 	else:
-		le = 1 + floor(log10(e))
-		sx = "0e%+d" % (le - n) if le - n != 0 else '0'
-	return sx, se
+		le = nd(e)
+		ex = le - n
+		sx = '0'
+		se = "%#.*g" % (n, e)
+	# RETURN
+	if errsep:
+		return sx, se, ex
+	return sx + '(' + ("%#.*g" % (n, e * 10 ** (n - nd(e))))[:n] + ')', '', ex
 
-def util_format_comp(x, e):
+def util_format(x, e, pm=None, percent=False, comexp=True):
 	"""
-		format a value with its uncertainty
-		
-		Parameters
-		----------
-		x : number
-			the value
-		e : number
-			the uncertainty
-		
-		Returns
-		-------
-		sx : string
-			the formatted value
-		se : string
-			the formatted uncertainty
-	"""
-	e = abs(e)
-	if not isfinite(x) or not isfinite(e) or e == 0:
-		sx, se = "%.3g" % x, "%.3g" % e
-	else:
-		sx, se = _format_epositive(x, e)
-	return sx, se
+	format a value with its uncertainty
 
-def util_format(x, e, pm='+-', percent=False):
+	Parameters
+	----------
+	x : number (or something understood by float(), ex. string representing number)
+		the value
+	e : number (or as above)
+		the uncertainty
+	pm : string, optional
+		The "plusminus" symbol. If None, use compact notation.
+	percent : bool
+		if True, also format the relative error as percentage
+	comexp : bool
+		if True, write the exponent once.
+
+	Returns
+	-------
+	s : string
+		the formatted value with uncertainty
+
+	Examples
+	--------
+	util_format(123, 4) --> '123(4)'
+	util_format(10, .99) --> '10.0(10)'
+	util_format(1e8, 2.5e6) --> '1.000(25)e+8'
+	util_format(1e8, 2.5e6, pm='+-') --> '(1.000 +- 0.025)e+8'
+	util_format(1e8, 2.5e6, pm='+-', comexp=False) --> '1.000e+8 +- 0.025e+8'
+	util_format(1e8, 2.5e6, percent=True) --> '1.000(25)e+8 (2.5 %)'
+	util_format(nan, nan) = 'nan +- nan'
+
+	See also
+	--------
+	xe, xep
 	"""
-		format a value with its uncertainty
-		
-		Parameters
-		----------
-		x : number
-			the value
-		e : number
-			the uncertainty
-		pm : string, optional
-			the "plusminus" symbol
-		percent : boolean, optional
-			if True, also format the relative error as percentage
-		
-		Returns
-		-------
-		s : string
-			the formatted value with uncertainty
-	"""
-	sx, se = util_format_comp(x, e)
-	if not percent or float(sx) == 0:
-		return "%s %s %s" % (sx, pm, se)
+	x = float(x)
+	e = abs(float(e))
+	if not math.isfinite(x) or not math.isfinite(e) or e == 0:
+		return "%.3g %s %.3g" % (x, '+-', e)
+	sx, se, ex = _format_epositive(x, e, not (pm is None))
+	es = "e%+d" % ex if ex != 0 else ''
+	if pm is None:
+		s = sx + es
+	elif comexp and es != '':
+		s = '(' + sx + ' ' + pm + ' ' + se + ')' + es
 	else:
-		ep = abs(e) / abs(x) * 100.0
-		eps = "%.*g" % (2 if ep < 100.0 else 3, ep)
-		return "%s %s %s (%s %%)" % (sx, pm, se, eps)
+		s = sx + es + ' ' + pm + ' ' + se + es
+	if (not percent) or sx == '0':
+		return s
+	pe = e / x * 100.0
+	return s + " (%.*g %%)" % (2 if pe < 100.0 else 3, pe)
 
 # ************************** TIME *********************************
 
 def util_timecomp(secs):
 	"""
 		convert a time interval in seconds to hours, minutes, seconds
-		
+
 		Parameters
 		----------
 		secs : number
 			the time interval expressed in seconds
-		
+
 		Returns
 		-------
 		hours : int
@@ -857,6 +892,10 @@ def util_timecomp(secs):
 			minutes, 0--59
 		seconds : int
 			seconds, 0--59
+
+		See also
+		--------
+		util_timestr
 	"""
 	hours = int(secs / 3600)
 	minutes = int((secs - hours * 3600) / 60)
@@ -866,105 +905,212 @@ def util_timecomp(secs):
 def util_timestr(secs):
 	"""
 		convert a time interval in seconds to a string with hours, minutes, seconds
-		
+
 		Parameters
 		----------
 		secs : number
 			the time interval expressed in seconds
-		
+
 		Returns
 		-------
 		str : str
 			string representing the interval
+
+		See also
+		--------
+		util_timecomp
 	"""
 	return "%02d:%02d:%02d" % util_timecomp(secs)
 
 _eta_start = 0
 
-def util_etastart():
-	return _time.time()
+def etastart():
+	"""
+	Call at the startpoint of something you want to compute the eta (estimated
+	time of arrival) of.
 
-def util_etastr(eta, progress):
-	interval = _time.time() - eta
+	Returns
+	-------
+	An object containing the starting time, to be given as argument to etastr().
+
+	Example
+	-------
+	>>> eta = etastart()
+	>>> for i in range(N):
+	>>>     print('elapsed time: %s, remaining time: %s' % etastr(eta, i / N))
+	>>>     # do something
+
+	See also
+	--------
+	etastr
+	"""
+	return time.time()
+
+def etastr(eta, progress):
+	"""
+	Compute the eta given a startpoint returned from etastart() and the progress.
+
+	Parameters
+	----------
+	eta :
+		object returned by etastart()
+	progress : number in [0,1]
+		the progress on a time-linear scale where 0 means still nothing done and
+		1 means finished.
+
+	Returns
+	-------
+	timestr : string
+		elapsed time
+	etastr : string
+		estimated time remaining
+
+	Example
+	-------
+	>>> eta = etastart()
+	>>> for i in range(N):
+	>>>     print('elapsed time: %s, remaining time: %s' % etastr(eta, i / N))
+	>>>     # do something
+
+	See also
+	--------
+	etastart
+	"""
+	interval = time.time() - eta
 	if 0 < progress <= 1:
 		etastr = util_timestr((1 - progress) * interval / progress)
 	elif progress == 0:
 		etastr = "--:--:--"
 	else:
-		raise RuntimeError("progress %.2f out of bounds [0,1]")
+		raise RuntimeError("progress %.2f out of bounds [0,1]" % progress)
 	timestr = util_timestr(interval)
 	return timestr, etastr
 
+# this function taken from stackoverflow and modified
+# http://stackoverflow.com/questions/17973278/python-decimal-engineering-notation-for-mili-10e-3-and-micro-10e-6
+def num2si(x, format='%.16g', si=True, space=' '):
+	"""
+	Returns x formatted in a simplified engineering format -
+	using an exponent that is a multiple of 3.
+
+	Parameters
+	----------
+	x : number
+		the number to format
+	format : string
+		printf-style string used to format the mantissa
+	si : boolean
+		if true, use SI suffix for exponent, e.g. k instead of e3, n instead of
+		e-9 etc. If the exponent would be greater than 24, numerical exponent is
+		used anyway.
+	space : string
+		string interposed between the mantissa and the exponent
+
+	Returns
+	-------
+	fx : string
+		the formatted value
+
+	Example
+	-------
+	     x     | num2si(x)
+	-----------|----------
+	   1.23e-8 |  12.3 n
+	       123 |  123
+	    1230.0 |  1.23 k
+	-1230000.0 |  -1.23 M
+	         0 |  0
+
+	See also
+	--------
+	util_format, util_format_comp, xe, xep
+	"""
+	x = float(x)
+	if x == 0:
+		return format % x
+	exp = int(math.floor(math.log10(abs(x))))
+	exp3 = exp - (exp % 3)
+	x3 = x / (10 ** exp3)
+
+	if si and exp3 >= -24 and exp3 <= 24 and exp3 != 0:
+		exp3_text = 'yzafpnum kMGTPEZY'[(exp3 - (-24)) // 3]
+	elif exp3 == 0:
+		exp3_text = ''
+		space = ''
+	else:
+		exp3_text = 'e%s' % exp3
+
+	return (format + '%s%s') % (x3, space, exp3_text)
+
 # ************************ SHORTCUTS ******************************
 
-def mme(x, unit, metertype='digital'):
+def mme(x, unit, metertype='lab3', sqerr=False):
 	"""
-		determines the fullscale used to measure x with a multimeter,
-		supposing the lowest possible fullscale was used, and returns the
-		uncertainty of the measurement.
-		
-		Parameters
-		----------
-		x : (X-shaped array of) number 
-			the value measured, may be negative
-		unit : (X-shaped array of) string
-			one of 'volt', 'volt_ac', 'ampere' 'ampere_ac', 'ohm'
-			the unit of measure of x
-		metertype : (X-shaped array of) string
-			one of 'digital', 'analog'
-			the multimeter used
-		
-		Returns
-		-------
-		e : (X-shaped array of) number
-			the uncertainty
-	"""
-	return util_mm_esr2(x, metertype=metertype, unit=unit, what='error')
+	determines the fullscale used to measure x with a multimeter,
+	supposing the lowest possible fullscale was used, and returns the
+	uncertainty of the measurement.
 
-_util_format_vect = vectorize(util_format, otypes=[str])
+	Parameters
+	----------
+	x : (X-shaped array of) number
+		the value measured, may be negative
+	unit : (X-shaped array of) string
+		one of 'volt', 'volt_ac', 'ampere' 'ampere_ac', 'ohm', 'farad'
+		the unit of measure of x
+	metertype : (X-shaped array of) string
+		one of the names returned by util_mm_list()
+		the multimeter used
+	sqerr : bool
+		If True, sum errors squaring.
 
-def xe(x, e, pm='+-'):
-	"""
-		format a value with its uncertainty
-		
-		Parameters
-		----------
-		x : (X-shaped array of) number
-			the value
-		e : (X-shaped array of) number
-			the uncertainty
-		pm : string, optional
-			the "plusminus" symbol
-		
-		Returns
-		-------
-		s : (X-shaped array of) string
-			the formatted value with uncertainty
-	"""
-	return _util_format_vect(x, e, pm, False)
+	Returns
+	-------
+	e : (X-shaped array of) number
+		the uncertainty
 
-def xep(x, e, pm='+-'):
+	See also
+	--------
+	util_mm_er, util_mm_esr, util_mm_esr2
 	"""
-		format a value with its absolute and relative uncertainty
-		
-		Parameters
-		----------
-		x : (X-shaped array of) number
-			the value
-		e : (X-shaped array of) number
-			the uncertainty
-		pm : string, optional
-			the "plusminus" symbol
-		
-		Returns
-		-------
-		s : (X-shaped array of) string
-			the formatted value with uncertainty
-	"""
-	return _util_format_vect(x, e, pm, True)
+	return util_mm_esr2(x, metertype=metertype, unit=unit, what='error', sqerr=sqerr)
 
-#########################################################################################################
-#########################################################################################################
+_util_format_vect = np.vectorize(util_format, otypes=[str])
+
+unicode_pm = u'±'
+
+def xe(x, e, pm=None, comexp=True):
+	"""
+	Vectorized version of util_format with percent=False,
+	see lab.util_format and numpy.vectorize.
+
+	Example
+	-------
+	xe(['1e7', 2e7], 33e4) --> ['1.00(3)e+7', '2.00(3)e+7']
+	xe(10, 0.8, pm=unicode_pm) --> '10.0 ± 0.8'
+
+	See also
+	--------
+	xep, num2si, util_format
+	"""
+	return _util_format_vect(x, e, pm, False, comexp)
+
+def xep(x, e, pm=None, comexp=True):
+	"""
+	Vectorized version of util_format with percent=True,
+	see lab.util_format and numpy.vectorize.
+
+	Example
+	-------
+	xep(['1e7', 2e7], 33e4) --> ['1.00(3)e+7 (3.3 %)', '2.00(3)e+7 (1.7 %)']
+	xep(10, 0.8, pm=unicode_pm) --> '10.0 ± 0.8 (8 %)'
+
+	See also
+	--------
+	xe, num2si, util_format
+	"""
+	return _util_format_vect(x, e, pm, True, comexp)
+
+# ********************** LAB3_DEVELOPMENTS ************************
 
 def _XYfunction(a): # default for the x-y columns from the file entries
 	return a[0], a[1]
@@ -992,7 +1138,7 @@ def _load_data(directory,file_):
 
 	return data
 
-def _errors(data, units):
+def _errors(data, units, XYfun):
 	"""
 		calculate errors on a data matrix
 
@@ -1002,6 +1148,7 @@ def _errors(data, units):
 			data matrix
 		units: (N-shaped array of) 2-lenght sequences
 			multimeter units and type
+		XYfun: 
 
 		Returns
 		-------
@@ -1035,15 +1182,31 @@ def _errors(data, units):
 
 	return X, Y, dX, dY, data_err
 
-def _preplot(directory, file_, title_, fig, X, Y, dX, dY, Xscale, Yscale, Xlab, Ylab):
+def _preplot(directory, file_, X, Y, dX, dY, title_="", fig="^^", Xscale="linear", Yscale="linear", Xlab="", Ylab=""):
 	"""
 		Parameters
 		----------	
+		directory: string
+			the pwd
+		file_: string
+			the txt file with the data to crunch
+		X: (N-shaped array of) numbers
+		Y: (N-shaped array of) numbers
+		dX: (N-shaped array of) numbers
+		dY: (N-shaped array of) numbers
+		title_: string, optional
+			plot title
+		fig: string, optional
+		Xscale: string, optional
+		Yscale: string, optional
+		Xlab: string, optional
+		Ylab: string, optional
 
 		Returns
 		-------
+		1, if all goes well
 
-	"""
+	"""	
 	figure(fig+"_2")
 	if (fig == file_):
 		clf()
@@ -1059,24 +1222,36 @@ def _preplot(directory, file_, title_, fig, X, Y, dX, dY, Xscale, Yscale, Xlab, 
 	savefig(directory+"grafici/fast_plot_"+fig+".pdf")
 	savefig(directory+"grafici/fast_plot_"+fig+".png")
 
-def _outlier_(directory, file_, units, X):
+def _outlier_(directory, file_, units, X, XYfun):
 	"""
 		Parameters
 		----------	
 
 		Returns
 		-------
+		X_ol: (N-shaped array of) numbers
+			x values
+		Y_ol: (N-shaped array of) numbers
+			y values
+		dX_ol: (N-shaped array of) numbers
+			x errors
+		dY_ol: (N-shaped array of) numbers
+			y errors
+		smin: number
+			inf limit of the x-values
+		smax: number
+			sup limit of the x-values
 
 	"""
 	data_ol = _load_data(directory,file_)
-	X_ol, Y_ol, dX_ol, dY_ol, data_ol_err = _errors(data_ol, units)
+	X_ol, Y_ol, dX_ol, dY_ol, data_ol_err = _errors(data_ol, units, XYfun)
 
 	smin=min(min(X_ol),min(X))
 	smax=max(max(X_ol),max(X))
 
 	return X_ol, Y_ol, dX_ol, dY_ol, smin, smax
 
-def _residuals(gne, gs, ax1, f, par, X, Xlab, Xscale, Y, dY, X_ol, Y_ol, dY_ol):
+def _residuals(gne, gs, ax1, f, par, out, X, Xlab, Xscale, Y, dY, X_ol, Y_ol, dY_ol):
 	"""
 		Parameters
 		----------	
@@ -1101,7 +1276,7 @@ def _residuals(gne, gs, ax1, f, par, X, Xlab, Xscale, Y, dY, X_ol, Y_ol, dY_ol):
 	if out ==True:
 		plot(X_ol, (Y_ol-f(X_ol,*par))/dY_ol, "^", color="green")
 
-def plot_fit(file_, title_, units, f, par, fig, residuals, xlimp, Xscale, Yscale, Xlab, Ylab, X, Y, dX, dY):
+def plot_fit(directory, file_, title_, units, f, par, out, fig, residuals, xlimp, XYfun, Xscale, Yscale, Xlab, Ylab, X, Y, dX, dY):
 	"""
 		Parameters
 		----------	
@@ -1133,7 +1308,7 @@ def plot_fit(file_, title_, units, f, par, fig, residuals, xlimp, Xscale, Yscale
 	xlima = array(xlimp)/100
 
 	if out ==True:
-		X_ol, Y_ol, dX_ol, dY_ol, smin, smax = _outlier_(directory, file_, units, X)
+		X_ol, Y_ol, dX_ol, dY_ol, smin, smax = _outlier_(directory, file_, units, X, XYfun)
 		
 	else:
 		smin = min(X)
@@ -1150,12 +1325,12 @@ def plot_fit(file_, title_, units, f, par, fig, residuals, xlimp, Xscale, Yscale
 		outlier = errorbar(X_ol,Y_ol,dY_ol,dX_ol, fmt="g^",ecolor="black",capsize=0.5)
 		plt.legend([outlier], ['outlier'], loc="best")
 	if residuals==True:
-		_residuals()
+		_residuals(gne, gs, ax1, f, par, out, X, Xlab, Xscale, Y, dY, X_ol, Y_ol, dY_ol)
 			
 	savefig(directory+"grafici/fit_"+fig+".pdf")
 	savefig(directory+"grafici/fit_"+fig+".png")
 
-def chi2_calc(f, par, X, Y, dY, cov)
+def chi2_calc(f, par, X, Y, dY, cov):
 	"""
 		Parameters
 		----------	
@@ -1236,7 +1411,8 @@ def fit(directory, file_, units, f, p0, title_="", Xlab="", Ylab="", XYfun=_XYfu
 		----------
 		directory:
 		file_:
-		units: array of tuples, each tuple must contains two elements (unit, metertype)
+		units: (X-shaped array of) sequences
+			(!) each sequence must contains two elements (unit, metertype)
 		f:
 		p0:
 		
@@ -1250,7 +1426,7 @@ def fit(directory, file_, units, f, p0, title_="", Xlab="", Ylab="", XYfun=_XYfu
 		
 	"""
 	data = _load_data(directory,file_)
-	X, Y, dX, dY, data_err = _errors(data, units)
+	X, Y, dX, dY, data_err = _errors(data, units, XYfun)
 
 	# define a default for the figure name
 	if fig=="^^":
@@ -1264,7 +1440,7 @@ def fit(directory, file_, units, f, p0, title_="", Xlab="", Ylab="", XYfun=_XYfu
 	par, cov = fit_generic_xyerr2(f,X,Y,dX,dY,p0)
 	
 	#Plotto il grafico con il fit e gli scarti
-	plot_fit(file_, title_, units, f, par, fig, residuals, xlimp, Xscale, Yscale, Xlab, Ylab, X, Y, dX, dY)
+	plot_fit(directory, file_, title_, units, f, par, out, fig, residuals, xlimp, XYfun, Xscale, Yscale, Xlab, Ylab, X, Y, dX, dY)
 
 	#Calcolo chi, errori e normalizzo la matrice di cov
 	chi, sigma, normcov = chi2_calc(f, par, X, Y, dY, cov)
@@ -1274,21 +1450,32 @@ def fit(directory, file_, units, f, p0, title_="", Xlab="", Ylab="", XYfun=_XYfu
 
 	#Salvo la tabella formattata latex
 	if table==True:
-		latex_table()
+		latex_table(directory, file_, data, data_err, tab)
 
-def fast_plot():
-	
+	return 1
+
+def fast_plot(directory, file_, units, XYfun=_XYfunction, title_="", fig="^^", Xscale="linear", Yscale="linear", Xlab="", Ylab=""):
 	"""
 		Parameters
 		----------	
+		directory:
+		file_:
+		units:
+		title_: string, optional
+			plot title
+		fig: string, optional
+		Xscale: string, optional
+		Yscale: string, optional
+		Xlab: string, optional
+		Ylab: string, optional
 
 		Returns
 		-------
+		1, if all goes well
 
 	"""	
-
 	data = _load_data(directory,file_)
-	X, Y, dX, dY, data_err = _errors(data, units)
+	X, Y, dX, dY, data_err = _errors(data, units, XYfun)
 
 	# define a default for the figure name
 	if fig=="^^":
@@ -1297,3 +1484,5 @@ def fast_plot():
 	# print a fast plot of the data	
 	if preplot==True :
 		_preplot(directory, file_, title_, fig, X, Y, dX, dY, Xscale, Yscale, Xlab, Ylab)
+
+	return 1
