@@ -9,7 +9,7 @@ from scipy.optimize import curve_fit
 
 __all__ = [ # things imported when you do "from lab import *"
 	'curve_fit_patched',
-	'fit_norm_cov',
+	'fit_norm_cov', 
 	'fit_generic_xyerr',
 	'fit_generic_xyerr2',
 	'fit_linear',

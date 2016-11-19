@@ -14,6 +14,18 @@ Piccolo modulo con funzioni python per il laboratorio di fisica:
 Requisiti: **scipy**
 
 **NON TESTATO SU PYTHON 2**
+
 ---
 
-## 
+## BuzzLightyear
+
+Ecco la nuova bellissima versione del vecchio analyzer! *Ora sì che si ragiona!*
+La release non è ancora completa, mancano le seguenti modifiche:
+> - completare l'help nelle modifiche
+> - aggiungere i default nelle nuove funzioni modularizzate
+> - finire di completare `__all__`
+> - verificare che mme funzioni correttamente (verificare proprio le forme nell'util_sticazzi in cui stanno)
+> - aggiungere incertezza di calibrazione oscilloscopio
+> - ottimizzare il numero di import che fa perdere tempo (magari commentarli solamente per il momento)
+
+Forse si potrebbe compilare esplicitamente per diminuire il tempo di esecuzione.
