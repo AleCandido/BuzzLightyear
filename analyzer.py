@@ -966,59 +966,26 @@ def xep(x, e, pm='+-'):
 #########################################################################################################
 #########################################################################################################
 
-#def fast_plot(directory, file, units, titolo="", Xlab="", Ylab="", XYfun=XYfunction,Xscale="linear",Yscale="linear", fig="^^"):
-#	columns = loadtxt(directory+"data/"+file+".txt", unpack = True)
-#	if type(columns[0]) is np.float64:
-#		columns=array(transpose(matrix(columns)))
-#		
-#	dcolumns = zeros((len(columns),len(columns[0])))	
-#	for i in range(len(columns)):
-#		if units[i]=="volt_osc":
-#			dcolumns[i]=columns[i]*0.035
-#		elif units[i]=="volt_osc_nocal":
-#			dcolumns[i]=columns[i]*0.025
-#		elif units[i]=="tempo_osc":
-#			dcolumns[i]=columns[i]*0.01
-#		else:
-#			dcolumns[i]=mme(columns[i],units[i])
-#	
-#	entries = unumpy.uarray(columns,dcolumns)
-#	
-#	X_err = XYfun(entries)[0]
-#	Y_err = XYfun(entries)[1]
-#	
-#	X=unumpy.nominal_values(X_err)
-#	Y=unumpy.nominal_values(Y_err)
-#	dX=unumpy.std_devs(X_err)
-#	dY=unumpy.std_devs(Y_err)
-
-#	if fig=="^^":
-#		fig=file
-#	figure(fig+"_2")
-#	if (fig == file or out != True):
-#		clf()
-#	title(titolo)
-#	xlabel(Xlab)
-#	ylabel(Ylab)
-#	if Xscale=="log":
-#		xscale("log")
-#	if Yscale=="log":
-#		yscale("log")
-#	grid(b=True)
-#	errorbar(X,Y,dY,dX, fmt=",",ecolor="black",capsize=0.5)
-#	savefig(directory+"grafici/fast_plot_"+fig+".pdf")
-#	savefig(directory+"grafici/fast_plot_"+fig+".png")
+def _XYfunction(a): # default for the x-y columns from the file entries
+	return a[0], a[1]
 
 def _load_data(directory,file_):
 	"""
+		load the data matrix 
+
 		Parameters
 		----------	
+		directory: string
+			the pwd
+		file_: string
+			the txt file with the data to crunch
 
 		Returns
 		-------
+		data: (M,N)-length array
+			data matrix, each column is a data-set of one quantity measured
 
 	"""
-	# load the data matrix (each column is a data-set of one quantity measured)
 	data = loadtxt(directory+"data/"+file_+".txt", unpack = True)	
 	if type(data[0]) is np.float64:	# check if the first column is a column 
 		data=array(transpose(matrix(data)))
@@ -1027,11 +994,27 @@ def _load_data(directory,file_):
 
 def _errors(data, units):
 	"""
+		calculate errors on a data matrix
+
 		Parameters
-		----------	
+		----------
+		data: ((M,N)-shaped array of) numbers
+			data matrix
+		units: (N-shaped array of) 2-lenght sequences
+			multimeter units and type
 
 		Returns
 		-------
+		X: (N-shaped array of) numbers
+			x values
+		Y: (N-shaped array of) numbers
+			y values
+		dX: (N-shaped array of) numbers
+			x errors
+		dY: (N-shaped array of) numbers
+			y errors
+		data_err: ((M,N)-shaped array of) numbers
+			matrix of errors
 
 	"""
 	# calculate data error with mme
@@ -1050,12 +1033,9 @@ def _errors(data, units):
 	dX=unumpy.std_devs(X_err)
 	dY=unumpy.std_devs(Y_err)
 
-	return X, Y, dX, dY
-	
-#TODO:	 unificazione con fast_plot
-#	 help di preplot
+	return X, Y, dX, dY, data_err
 
-def preplot(directory, file_, title_, fig, X, Y, dX, dY, Xscale, Yscale, Xlab, Ylab):
+def _preplot(directory, file_, title_, fig, X, Y, dX, dY, Xscale, Yscale, Xlab, Ylab):
 	"""
 		Parameters
 		----------	
@@ -1079,7 +1059,7 @@ def preplot(directory, file_, title_, fig, X, Y, dX, dY, Xscale, Yscale, Xlab, Y
 	savefig(directory+"grafici/fast_plot_"+fig+".pdf")
 	savefig(directory+"grafici/fast_plot_"+fig+".png")
 
-def _outlier_():
+def _outlier_(directory, file_, units, X):
 	"""
 		Parameters
 		----------	
@@ -1088,34 +1068,40 @@ def _outlier_():
 		-------
 
 	"""
-	olcolumns = loadtxt(directory+"data/"+file_+"_ol.txt", unpack = True)
-	if type(olcolumns[0]) is np.float64:
-		olcolumns=array(transpose(matrix(olcolumns)))
-	oldcolumns = zeros((len(olcolumns),len(olcolumns[0])))
-	for i in range(len(olcolumns)):
-		if units[i]=="volt_osc":
-			oldcolumns[i]=olcolumns[i]*0.035
-		elif units[i]=="volt_osc_nocal":
-			oldcolumns[i]=olcolumns[i]*0.025
-		elif units[i]=="tempo_osc":
-			oldcolumns[i]=olcolumns[i]*0.01
-		else:
-			oldcolumns[i]=mme(olcolumns[i],units[i])
-	
-	olentries = unumpy.uarray(olcolumns,oldcolumns)
-	
-	olX_err = XYfun(olentries)[0]
-	olY_err = XYfun(olentries)[1]
-	
-	X_ol=unumpy.nominal_values(olX_err)
-	Y_ol=unumpy.nominal_values(olY_err)
-	dX_ol=unumpy.std_devs(olX_err)
-	dY_ol=unumpy.std_devs(olY_err)
+	data_ol = _load_data(directory,file_)
+	X_ol, Y_ol, dX_ol, dY_ol, data_ol_err = _errors(data_ol, units)
 
 	smin=min(min(X_ol),min(X))
 	smax=max(max(X_ol),max(X))
 
-def plot_fit(file_, title_, fig, scarti, xlimp, Xscale, Yscale, Xlab, Ylab, X, Y, dX, dY):
+	return X_ol, Y_ol, dX_ol, dY_ol, smin, smax
+
+def _residuals(gne, gs, ax1, f, par, X, Xlab, Xscale, Y, dY, X_ol, Y_ol, dY_ol):
+	"""
+		Parameters
+		----------	
+
+		Returns
+		-------
+
+	"""
+	figure(fig+"_1")
+
+	#subplot(212)
+	ax2 = gne.add_subplot(gs[3,:], sharex=ax1)
+	pyplot.rc('ytick', labelsize=12)
+	#title("Scarti normalizzati")
+	xlabel(Xlab) #
+	ylabel("Scarti")
+	if Xscale=="log":
+		xscale("log")
+	grid(b=True)
+	plot(X, (Y-f(X,*par))/dY, ".", color="black")
+
+	if out ==True:
+		plot(X_ol, (Y_ol-f(X_ol,*par))/dY_ol, "^", color="green")
+
+def plot_fit(file_, title_, units, f, par, fig, residuals, xlimp, Xscale, Yscale, Xlab, Ylab, X, Y, dX, dY):
 	"""
 		Parameters
 		----------	
@@ -1128,7 +1114,7 @@ def plot_fit(file_, title_, fig, scarti, xlimp, Xscale, Yscale, Xlab, Ylab, X, Y
 	gne=figure(fig+"_1")
 	if (fig == file_):
 		clf()
-	if scarti==True:
+	if residuals==True:
 		ax1 = gne.add_subplot(gs[:-1,:])
 		pyplot.setp(ax1.get_xticklabels(), visible=False)
 		
@@ -1141,19 +1127,18 @@ def plot_fit(file_, title_, fig, scarti, xlimp, Xscale, Yscale, Xlab, Ylab, X, Y
 
 	errorbar(X,Y,dY,dX, fmt=",",ecolor="black",capsize=0.5)
 
-	if scarti==False :
+	if residuals==False :
 		xlabel(Xlab)
 	ylabel(Ylab)
 	xlima = array(xlimp)/100
 
 	if out ==True:
-		_outlier_()
+		X_ol, Y_ol, dX_ol, dY_ol, smin, smax = _outlier_(directory, file_, units, X)
 		
 	else:
 		smin = min(X)
 		smax = max(X)
 		
-	#
 	if Xscale=="log":
 		l=logspace(log10(smin)*xlima[0],log10(smax*xlima[1]),1000)
 	else:
@@ -1164,28 +1149,79 @@ def plot_fit(file_, title_, fig, scarti, xlimp, Xscale, Yscale, Xlab, Ylab, X, Y
 	if out==True:
 		outlier = errorbar(X_ol,Y_ol,dY_ol,dX_ol, fmt="g^",ecolor="black",capsize=0.5)
 		plt.legend([outlier], ['outlier'], loc="best")
-	if scarti==True:
-		#subplot(212)
-		ax2 = gne.add_subplot(gs[3,:], sharex=ax1)
-		pyplot.rc('ytick', labelsize=12)
-		#title("Scarti normalizzati")
-		xlabel(Xlab) #
-		ylabel("Scarti")
-		if Xscale=="log":
-			xscale("log")
-		grid(b=True)
-		plot(X, (Y-f(X,*par))/dY, ".", color="black")
-
-		if out ==True:
-			plot(X_ol, (Y_ol-f(X_ol,*par))/dY_ol, "^", color="green")
+	if residuals==True:
+		_residuals()
 			
 	savefig(directory+"grafici/fit_"+fig+".pdf")
 	savefig(directory+"grafici/fit_"+fig+".png")
 
-def _XYfunction(a): # default for the x-y columns from the file entries
-	return a[0], a[1]
+def chi2_calc(f, par, X, Y, dY, cov)
+	"""
+		Parameters
+		----------	
 
-def fit(directory, file_, units, f, p0, title_="", Xlab="", Ylab="", XYfun=_XYfunction, preplot=False, Xscale="linear", Yscale="linear", xlimp = array([100.,100.]), residuals=False, table=False, tab=[""], fig="^^", out=False, scarti=False):
+		Returns
+		-------
+
+	"""		
+	chi = sum((Y-f(X,*par))**2/dY**2)
+	
+	sigma = sqrt(diag(cov))
+	
+	normcov = zeros((len(par),len(par)))
+	
+	for i in range(len(par)):
+		for j in range(len(par)):
+			normcov[i,j]=cov[i, j]/(sigma[i]*sigma[j])
+
+	return chi, sigma, normcov
+
+def pretty_print_chi2(file_, par, sigma, chi, X, normcov):
+	"""
+		Parameters
+		----------	
+
+		Returns
+		-------
+
+	"""	
+	print("_________________________________________________________")
+	print("\nFIT RESULT %s\n" % file_)
+	for i in range(len(par)):
+		print("p%s = %s" % (i,xep(par[i],sigma[i],",")))
+	
+	print("\nchi / ndof =",chi,"/",len(X)-len(par))
+	if len(par)>1 :
+		print("covarianza normalizzata=\n",normcov)
+
+def latex_table(directory, file_, data, data_err, tab):
+	"""
+		Parameters
+		----------	
+
+		Returns
+		-------
+
+	"""
+	with open(directory+"tabelle/tab_"+file_+".txt", "w") as text_file:
+		text_file.write("\\begin{tabular}{c")
+		for z in range (1,len(data)):
+			text_file.write("|c")
+		text_file.write("} \n")
+		print()
+		text_file.write("%s" % tab[0])
+		for z in range (1,len(data)):
+			text_file.write(" & %s" % tab[z])
+		text_file.write("\\\\\n\hline\n")
+		for i in range (len(data[0])):
+			text_file.write("%s" % xe(data[0][i], data_err[0][i], "$\pm$"))
+			for j in range (1,len(data)):
+				text_file.write(" & %s" % xe(data[j][i], data_err[j][i], "$\pm$"))
+			text_file.write("\\\\\n")
+		text_file.write("\\end{tabular}")
+		text_file.close()
+
+def fit(directory, file_, units, f, p0, title_="", Xlab="", Ylab="", XYfun=_XYfunction, preplot=False, Xscale="linear", Yscale="linear", xlimp = array([100.,100.]), residuals=False, table=False, tab=[""], fig="^^", out=False):
 	
 	"""
 		Interface for the fit functions of lab library.
@@ -1214,7 +1250,7 @@ def fit(directory, file_, units, f, p0, title_="", Xlab="", Ylab="", XYfun=_XYfu
 		
 	"""
 	data = _load_data(directory,file_)
-	X, Y, dX, dY = _errors(data, units)
+	X, Y, dX, dY, data_err = _errors(data, units)
 
 	# define a default for the figure name
 	if fig=="^^":
@@ -1222,52 +1258,42 @@ def fit(directory, file_, units, f, p0, title_="", Xlab="", Ylab="", XYfun=_XYfu
 	
 	# print a fast plot of the data	
 	if preplot==True :
-		preplot(directory, file_, title_, fig, X, Y, dX, dY, Xscale, Yscale, Xlab, Ylab)
+		_preplot(directory, file_, title_, fig, X, Y, dX, dY, Xscale, Yscale, Xlab, Ylab)
 	
 	#Fit
 	par, cov = fit_generic_xyerr2(f,X,Y,dX,dY,p0)
 	
 	#Plotto il grafico con il fit e gli scarti
-
-	plot_fit = ()
+	plot_fit(file_, title_, units, f, par, fig, residuals, xlimp, Xscale, Yscale, Xlab, Ylab, X, Y, dX, dY)
 
 	#Calcolo chi, errori e normalizzo la matrice di cov
-	
-	chi = sum((Y-f(X,*par))**2/dY**2)
-	
-	sigma=sqrt(diag(cov))
-	
-	normcov = zeros((len(par),len(par)))
-	
-	for i in range(len(par)):
-		for j in range(len(par)):
-			normcov[i,j]=cov[i, j]/(sigma[i]*sigma[j])
+	chi, sigma, normcov = chi2_calc(f, par, X, Y, dY, cov)
 
 	#Stampo i risultati, il chi e la matrice di cov
-	print("_________________________________________________________")
-	print("\nFIT RESULT %s\n" % file_)
-	for i in range(len(par)):
-		print("p%s = %s" % (i,xep(par[i],sigma[i],",")))
-	
-	print("\nchi / ndof =",chi,"/",len(X)-len(par))
-	if len(par)>1 :
-		print("covarianza normalizzata=\n",normcov)
+	pretty_print_chi2(file_, par, sigma, chi, X, normcov)
+
 	#Salvo la tabella formattata latex
 	if table==True:
-		with open(directory+"tabelle/tab_"+file_+".txt", "w") as text_file:
-			text_file.write("\\begin{tabular}{c")
-			for z in range (1,len(data)):
-				text_file.write("|c")
-			text_file.write("} \n")
-			print()
-			text_file.write("%s" % tab[0])
-			for z in range (1,len(data)):
-				text_file.write(" & %s" % tab[z])
-			text_file.write("\\\\\n\hline\n")
-			for i in range (len(data[0])):
-				text_file.write("%s" % xe(data[0][i], data_err[0][i], "$\pm$"))
-				for j in range (1,len(data)):
-					text_file.write(" & %s" % xe(data[j][i], data_err[j][i], "$\pm$"))
-				text_file.write("\\\\\n")
-			text_file.write("\\end{tabular}")
-			text_file.close()
+		latex_table()
+
+def fast_plot():
+	
+	"""
+		Parameters
+		----------	
+
+		Returns
+		-------
+
+	"""	
+
+	data = _load_data(directory,file_)
+	X, Y, dX, dY, data_err = _errors(data, units)
+
+	# define a default for the figure name
+	if fig=="^^":
+		fig=file_
+	
+	# print a fast plot of the data	
+	if preplot==True :
+		_preplot(directory, file_, title_, fig, X, Y, dX, dY, Xscale, Yscale, Xlab, Ylab)
