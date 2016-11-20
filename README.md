@@ -1,4 +1,4 @@
-# analyzer.py
+# BuzzLightyear.py
 
 fork di [lab.py](https://github.com/Gattocrucco/lab "di Giacomo Petrillo"), si riportano le feature e le avvertenze presenti nel README  di lab.py
 
@@ -17,9 +17,12 @@ Requisiti: **scipy**
 
 ---
 
-## BuzzLightyear
+## Welcome space ranger!
 
 Ecco la nuova bellissima versione del vecchio analyzer! *Ora sì che si ragiona!*
+
+## To infinity… and beyond!
+
 La release non è ancora completa, mancano le seguenti modifiche:
 > - completare l'help nelle modifiche
 > - aggiungere i default nelle nuove funzioni modularizzate
