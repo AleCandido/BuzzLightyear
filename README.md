@@ -30,5 +30,3 @@ La release non è ancora completa, mancano le seguenti modifiche:
 > - verificare che mme funzioni correttamente (verificare proprio le forme nell'util_sticazzi in cui stanno)
 > - aggiungere incertezza di calibrazione oscilloscopio
 > - ottimizzare il numero di import che fa perdere tempo (magari commentarli solamente per il momento)
-
-Forse si potrebbe compilare esplicitamente per diminuire il tempo di esecuzione.
