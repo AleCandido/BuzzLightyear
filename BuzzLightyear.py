@@ -14,6 +14,7 @@ from uncertainties import unumpy
 from lab import mme, fit_generic_xyerr2, xe, xep
 
 __all__ = [ # things imported when you do "from lab import *"
+    'load_data',
     'plot_fit',
     'chi2_calc',
     'pretty_print_chi2',
@@ -30,7 +31,7 @@ __version__ = '1.0'
 def _XYfunction(a): # default for the x-y columns from the file entries
     return a[0], a[1]
 
-def _load_data(directory,file_):
+def load_data(directory,file_):
     # load the data matrix from the data file 
     
     data = loadtxt(directory+"data/"+file_+".txt", unpack = True)    
@@ -217,7 +218,7 @@ def pretty_print_chi2(file_, par, sigma, chi, X, normcov, p):
     if len(par)>1:
         print("covarianza normalizzata=\n", normcov)
 
-def latex_table(directory, file_, data, data_err, tab, out, data_ol=[], data_err_ol=[]):
+def latex_table(directory, file_, data, data_err, tab, out=False, data_ol=[], data_err_ol=[]):
     """
         Parameters
         ----------    
